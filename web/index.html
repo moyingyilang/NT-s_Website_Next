@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NTC</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Microsoft YaHei', sans-serif; }
+/* ========== 浅色模式变量（默认） ========== */
+:root {
+    --bg-color: #f0f2f5;
+    --header-bg: #fff;
+    --sidebar-bg: #fff;
+    --chat-bg: #f5f7fa;
+    --text-color: #333;
+    --border-color: #ddd;
+    --bubble-bg: #fff;
+    --own-bubble-bg: #95ec69;
+    --input-bg: #fff;
+    --modal-bg: #fff;
+    --dropdown-bg: #fff;
+    --dropdown-hover: #f5f5f5;
+    --friend-item-hover: #f0f0f0;
+    --friend-item-active: #e0e0e0;
+}
+/* ========== 暗黑模式变量覆盖 ========== */
+.dark-mode {
+    --bg-color: #1e1e1e;
+    --header-bg: #2d2d2d;
+    --sidebar-bg: #2d2d2d;
+    --chat-bg: #1e1e1e;
+    --text-color: #eee;
+    --border-color: #444;
+    --bubble-bg: #3a3a3a;
+    --own-bubble-bg: #666666;
+    --input-bg: #262626;
+    --modal-bg: #2d2d2d;
+    --dropdown-bg: #2d2d2d;
+    --dropdown-hover: #262626;
+    --friend-item-hover: #262626;
+    --friend-item-active: #3f3f3f;
+}
+/* 应用变量 */
+body {
+    height: 100vh;
+    background: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+.app-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.hidden {
+    display: none !important;
+}
+.header {
+    height: 60px;
+    background: var(--header-bg);
+    display: flex;
+    justify-content: space-between;  /* 改为左右分布 */
+    align-items: center;
+    padding: 0 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+/* 左侧暗黑模式按钮 */
+.header-left {
+    display: flex;
+    align-items: center;
+}
+.dark-mode-btn {
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 5px 10px;
+    color: var(--text-color);
+    line-height: 1;
+    border-radius: 30px;
+    transition: background 0.2s;
+}
+.dark-mode-btn:hover {
+    background: rgba(128,128,128,0.2);
+}
+.user-info {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 30px;
+    transition: background 0.2s;
+}
+.user-info:hover {
+    background: var(--friend-item-hover);
+}
+.avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #ccc;
+    margin-right: 10px;
+    object-fit: cover;
+}
+.dropdown-menu {
+    position: absolute;
+    top: 60px;
+    right: 20px;
+    background: var(--dropdown-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: none;
+    flex-direction: column;
+    min-width: 150px;
+    z-index: 1000;
+    color: var(--text-color);
+}
+.dropdown-menu a {
+    padding: 10px 15px;
+    text-decoration: none;
+    color: var(--text-color);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 14px;
+}
+.dropdown-menu a:last-child {
+    border-bottom: none;
+}
+.dropdown-menu a:hover {
+    background: var(--dropdown-hover);
+}
+.main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    background: var(--bg-color);
+}
+.sidebar {
+    width: 260px;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+.chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--chat-bg);
+    overflow: hidden;
+    min-width: 0;
+}
+.chat-header {
+    height: 50px;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    font-weight: bold;
+    color: var(--text-color);
+    flex-shrink: 0;
+}
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+/* 消息整体布局 */
+.message {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 15px;
+}
+.message.own {
+    flex-direction: row-reverse;
+}
+.message .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin: 0 10px;
+    flex-shrink: 0;
+}
+/* 右侧列（名称 + 气泡） */
+.message .right-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    overflow: hidden;
+    align-items: flex-start;
+}
+.message.own .right-col {
+    align-items: flex-end;
+}
+/* 发送者名称 */
+.message .sender-name {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-color);
+    opacity: 0.8;
+    margin-bottom: 4px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+.message.own .sender-name {
+    text-align: right;
+}
+.message .bubble {
+    background: var(--bubble-bg);
+    padding: 10px 15px;
+    border-radius: 18px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    word-wrap: break-word;
+    max-width: 70%;
+    white-space: pre-wrap;
+    line-height: 1.4;
+    display: inline-block;
+    color: var(--text-color);
+}
+.message.own .bubble {
+    background: var(--own-bubble-bg);
+}
+.message .bubble .content {
+    font-size: 14px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+.message .bubble img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 5px;
+}
+.chat-input {
+    background: var(--input-bg);
+    border-top: 1px solid var(--border-color);
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.chat-input textarea {
+    flex: 1;
+    height: 60px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    resize: none;
+    font-size: 14px;
+    outline: none;
+    line-height: 1.4;
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+.chat-input button {
+    height: 40px;
+    padding: 0 20px;
+    background: #07c160;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+}
+.chat-input button:hover {
+    background: #06a858;
+}
+.chat-input .image-btn {
+    background: var(--input-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+.chat-input .image-btn:hover {
+    background: var(--friend-item-hover);
+}
+.friend-item {
+    padding: 13.9px 15px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    color: var(--text-color);
+}
+.friend-item:hover {
+    background: var(--friend-item-hover);
+}
+.friend-item.active {
+    background: var(--friend-item-active);
+}
+.friend-item .friend-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    margin-right: 10px;
+    background: #ccc;
+}
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+.modal-content {
+    background: var(--modal-bg);
+    padding: 25px;
+    border-radius: 12px;
+    min-width: 350px;
+    max-width: 500px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    color: var(--text-color);
+}
+.modal-content h3 {
+    margin-bottom: 20px;
+    font-size: 18px;
+}
+.modal-content input,
+.modal-content select,
+.modal-content textarea {
+    width: 100%;
+    padding: 8px 12px;
+    margin: 10px 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+.modal-content button {
+    padding: 8px 16px;
+    margin-right: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.modal-content button.primary {
+    background: #07c160;
+    color: white;
+}
+.modal-content button.secondary {
+    background: #6c757d;
+    color: white;
+}
+.modal-content .close {
+    float: right;
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--text-color);
+}
+.error {
+    color: red;
+    font-size: 0.9em;
+    margin-top: 5px;
+}
+.login-register {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: var(--bg-color);
+}
+.login-register .box {
+    background: var(--modal-bg);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    width: 350px;
+    color: var(--text-color);
+}
+.login-register .box h2 {
+    margin-bottom: 20px;
+    text-align: center;
+}
+.login-register .box input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+.login-register .box button {
+    width: 100%;
+    padding: 10px;
+    background: #07c160;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+.login-register .box .toggle {
+    text-align: center;
+    margin-top: 15px;
+    color: #07c160;
+    cursor: pointer;
+}
+.request-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+.request-item img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+.request-item .info {
+    flex: 1;
+    color: var(--text-color);
+}
+.request-item .info div {
+    margin-bottom: 3px;
+    font-size: 14px;
+}
+.request-item button {
+    margin-left: 5px;
+    padding: 5px 10px;
+    font-size: 13px;
+}
+/* 菜单按钮动画 */
+#menuToggle {
+    transition: transform 0.3s ease;
+}
+#menuToggle.rotate {
+    transform: rotate(270deg);
+}
+</style>
+</head>
+<body>
+    <!-- 登录/注册界面 -->
+    <div id="loginRegisterContainer" class="login-register">
+        <div class="box" id="loginBox">
+            <h2>登录</h2>
+            <input type="text" id="loginUsername" placeholder="用户名或数字ID">
+            <input type="password" id="loginPassword" placeholder="密码">
+            <button onclick="doLogin()">登录</button>
+            <div class="toggle" onclick="showRegister()">没有账号？立即注册</div>
+        </div>
+        <div class="box hidden" id="registerBox">
+            <h2>注册</h2>
+            <input type="text" id="regUsername" placeholder="用户名 (登录用)">
+            <input type="password" id="regPassword" placeholder="密码">
+            <input type="file" id="regAvatar" accept="image/*">
+            <button onclick="doRegister()">注册</button>
+            <div class="toggle" onclick="showLogin()">已有账号？去登录</div>
+        </div>
+    </div>
+    <!-- 主聊天界面 (初始隐藏) -->
+    <div id="mainApp" class="app-container hidden">
+        <div class="header">
+            <!-- 左侧暗黑模式按钮 -->
+            <div class="header-left">
+                <button class="dark-mode-btn" id="menuToggle">☰</button>
+                <button id="darkModeToggle" class="dark-mode-btn">🌙</button>
+            </div>
+            <!-- 右侧用户信息 -->
+            <div class="user-info" id="userInfo" onclick="toggleMenu(event)">
+                <img class="avatar" id="avatar" src="" alt="avatar">
+                <span id="username"></span>
+            </div>
+            <!-- 下拉菜单 (包含好友申请) -->
+            <div class="dropdown-menu" id="dropdownMenu">
+                <a onclick="showFriendRequests()">好友申请 <span id="requestCount" style="background:#f56c6c; color:white; border-radius:10px; padding:2px 6px; margin-left:5px;">0</span></a>
+                <a onclick="deleteCurrentFriend()">删除好友</a>
+                <a onclick="showChangeAvatar()">修改头像</a>
+                <a onclick="showChangeNickname()">修改用户名</a>
+                <a onclick="showChangePassword()">修改密码</a>
+                <a onclick="showEditProfile()">修改资料</a>
+                <a onclick="showEditBio()">用户简介</a>
+                <a onclick="showSearchUserInfo()">查看用户信息</a>
+                <a onclick="logout()">退出登录</a>
+            </div>
+<!-- 左侧导航菜单（可扩展） -->
+<div class="dropdown-menu" id="leftMenu" style="left: 20px; right: auto; display: none;">
+    <a href="#" onclick="goToAnnouncement()">公告</a>
+    <a href="#" onclick="goToUpload(); return false;">压缩包上传</a>
+    <a href="#" onclick="goToNTwiki(); return false;">NTwiki</a>
+</div>
+        </div>
+        <div class="main">
+            <div class="sidebar">
+                <!-- 好友列表 (不再包含申请按钮) -->
+                <div id="friendList"></div>
+            </div>
+            <div class="chat-area">
+                <div class="chat-header" id="chatHeader">
+                    请选择好友开始聊天
+                </div>
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-input">
+                    <textarea id="messageInput" placeholder="输入消息..."></textarea>
+                    <button onclick="sendMessage()">发送</button>
+                    <button class="image-btn" onclick="document.getElementById('imageUpload').click()">图片</button>
+                    <input type="file" id="imageUpload" accept="image/*" style="display:none;">
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 模态框：修改头像 -->
+    <div class="modal" id="changeAvatarModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('changeAvatarModal')">&times;</span>
+            <h3>修改头像</h3>
+            <input type="file" id="newAvatar" accept="image/*">
+            <button class="primary" onclick="uploadAvatar()">上传</button>
+            <button class="secondary" onclick="closeModal('changeAvatarModal')">取消</button>
+        </div>
+    </div>
+    <!-- 模态框：修改用户名（昵称） -->
+    <div class="modal" id="changeNicknameModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('changeNicknameModal')">&times;</span>
+            <h3>修改昵称</h3>
+            <input type="text" id="newNickname" placeholder="新昵称">
+            <button class="primary" onclick="updateNickname()">保存</button>
+            <button class="secondary" onclick="closeModal('changeNicknameModal')">取消</button>
+        </div>
+    </div>
+    <!-- 模态框：修改密码 -->
+    <div class="modal" id="changePasswordModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('changePasswordModal')">&times;</span>
+            <h3>修改密码</h3>
+            <input type="password" id="oldPassword" placeholder="旧密码">
+            <input type="password" id="newPassword" placeholder="新密码">
+            <input type="password" id="confirmPassword" placeholder="确认新密码">
+            <button class="primary" onclick="updatePassword()">保存</button>
+            <button class="secondary" onclick="closeModal('changePasswordModal')">取消</button>
+        </div>
+    </div>
+    <!-- 模态框：修改资料（好友验证方式） -->
+    <div class="modal" id="editProfileModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editProfileModal')">&times;</span>
+            <h3>修改资料</h3>
+            <label>好友验证方式:</label>
+            <select id="profileVerifyMode">
+                <option value="allow_all">允许任何人添加</option>
+                <option value="need_verify">需要验证</option>
+                <option value="deny_all">禁止添加</option>
+            </select>
+            <button class="primary" onclick="updateProfile()">保存</button>
+            <button class="secondary" onclick="closeModal('editProfileModal')">取消</button>
+        </div>
+    </div>
+    <!-- 模态框：修改用户简介 -->
+    <div class="modal" id="editBioModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editBioModal')">&times;</span>
+            <h3>修改简介</h3>
+            <textarea id="bioContent" rows="4" placeholder="写点什么..."></textarea>
+            <button class="primary" onclick="updateBio()">保存</button>
+            <button class="secondary" onclick="closeModal('editBioModal')">取消</button>
+        </div>
+    </div>
+    <!-- 模态框：查看用户信息 (增加显示当前用户ID) -->
+    <div class="modal" id="searchUserInfoModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('searchUserInfoModal')">&times;</span>
+            <h3>查看用户信息</h3>
+            <p><strong>我的数字ID:</strong> <span id="myUserId"></span></p>
+            <input type="text" id="searchUserIdInput" placeholder="输入要查询的用户数字ID">
+            <button onclick="searchUserInfo()">搜索</button>
+            <div id="userInfoResult" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+    <!-- 模态框：好友申请列表 -->
+    <div class="modal" id="friendRequestsModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close" onclick="closeModal('friendRequestsModal')">&times;</span>
+            <h3>好友申请</h3>
+            <div id="friendRequestsList" style="max-height: 400px; overflow-y: auto;"></div>
+        </div>
+    </div>
+    <!-- 添加好友模态框 -->
+    <div class="modal" id="addFriendModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addFriendModal')">&times;</span>
+            <h3>添加好友</h3>
+            <input type="text" id="searchUserId" placeholder="输入用户数字ID">
+            <button onclick="searchUser()">搜索</button>
+            <div id="searchResult"></div>
+        </div>
+    </div>
+    <script>
+        let currentUser = null;
+        let currentFriendId = null;
+        let currentFriendInfo = null;
+        let messagePollingInterval = null; // 轮询定时器
+let currentMessages = [];          // 缓存当前好友的消息列表
+let currentFriendIdForMessages = null; // 当前正在聊天的好友ID
+        // 切换登录/注册界面
+        function showLogin() {
+            document.getElementById('loginBox').classList.remove('hidden');
+            document.getElementById('registerBox').classList.add('hidden');
+        }
+        function showRegister() {
+            document.getElementById('loginBox').classList.add('hidden');
+            document.getElementById('registerBox').classList.remove('hidden');
+        }
+        // 注册
+        async function doRegister() {
+            const username = document.getElementById('regUsername').value.trim();
+            const password = document.getElementById('regPassword').value.trim();
+            if (!username || !password) {
+                alert('用户名和密码不能为空');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+            const avatarFile = document.getElementById('regAvatar').files[0];
+            if (avatarFile) {
+                formData.append('avatar', avatarFile);
+            }
+            const res = await fetch('/api/public/register', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                alert('注册成功，请登录');
+                showLogin();
+            } else {
+                alert('注册失败: ' + data.error);
+            }
+        }
+        // 登录（支持用户名或数字ID）
+        async function doLogin() {
+            const usernameOrId = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            if (!usernameOrId || !password) {
+                alert('请输入用户名/ID和密码');
+                return;
+            }
+            const res = await fetch('/api/public/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ username: usernameOrId, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.user;
+                document.getElementById('loginRegisterContainer').classList.add('hidden');
+                document.getElementById('mainApp').classList.remove('hidden');
+                updateUserInfo();
+                loadFriends();
+                loadFriendRequestCount();
+                startMessagePolling(); // 启动消息轮询
+            } else {
+                alert('登录失败: ' + data.error);
+            }
+        }
+        // 退出登录
+        async function logout() {
+            stopMessagePolling();
+            await fetch('/api/public/logout');
+            currentUser = null;
+            document.getElementById('loginRegisterContainer').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+            document.getElementById('dropdownMenu').style.display = 'none';
+        }
+        // 更新用户信息显示
+        function updateUserInfo() {
+            document.getElementById('username').textContent = currentUser.nickname || currentUser.username;
+            if (currentUser.avatar) {
+                document.getElementById('avatar').src = currentUser.avatar + '?t=' + Date.now();
+            } else {
+                document.getElementById('avatar').src = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2220%22%20fill%3D%22%23ccc%22%2F%3E%3C%2Fsvg%3E';
+            }
+        }
+        // 下拉菜单
+        function toggleMenu(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('dropdownMenu');
+            menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+        }
+// 全局点击隐藏菜单（替换原 window.onclick）
+window.onclick = function(e) {
+    // 隐藏右侧用户菜单（点击非用户区域时）
+    if (!e.target.closest('.user-info')) {
+        document.getElementById('dropdownMenu').style.display = 'none';
+    }
+    // 隐藏左侧菜单（点击不是菜单按钮也不是菜单本身时）
+    if (!e.target.closest('#menuToggle') && !e.target.closest('#leftMenu')) {
+        document.getElementById('leftMenu').style.display = 'none';
+        document.getElementById('menuToggle').classList.remove('rotate');
+    }
+}
+// 左侧菜单按钮点击事件
+document.getElementById('menuToggle').addEventListener('click', function(e) {
+    e.stopPropagation(); // 阻止事件冒泡，避免立即触发 window.onclick
+    const leftMenu = document.getElementById('leftMenu');
+    const userMenu = document.getElementById('dropdownMenu');
+    
+    // 如果左侧菜单正在显示，则隐藏并移除旋转类
+    if (leftMenu.style.display === 'flex') {
+        leftMenu.style.display = 'none';
+        this.classList.remove('rotate');
+    } else {
+        // 隐藏右侧菜单（避免同时显示两个菜单）
+        userMenu.style.display = 'none';
+        // 显示左侧菜单并添加旋转动画
+        leftMenu.style.display = 'flex';
+        this.classList.add('rotate');
+    }
+});
+// 跳转到 /upf/ 目录
+function goToUpload() {
+    window.location.href = '/upF/';
+}
+function goToAnnouncement() {
+    window.location.href = '/An/';
+}
+function goToNTwiki() {
+    window.location.href = '/NTwiki/';
+}
+        // 模态框操作
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+        function showChangeAvatar() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('changeAvatarModal').style.display = 'flex';
+        }
+        function showChangeNickname() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('changeNicknameModal').style.display = 'flex';
+        }
+        function showChangePassword() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('changePasswordModal').style.display = 'flex';
+        }
+        function showEditProfile() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('profileVerifyMode').value = currentUser.verify_mode || 'need_verify';
+            document.getElementById('editProfileModal').style.display = 'flex';
+        }
+        function showEditBio() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('bioContent').value = currentUser.bio || '';
+            document.getElementById('editBioModal').style.display = 'flex';
+        }
+        // 查看用户信息：显示当前用户数字ID
+        function showSearchUserInfo() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            document.getElementById('myUserId').textContent = currentUser.id;
+            document.getElementById('searchUserIdInput').value = '';
+            document.getElementById('userInfoResult').innerHTML = '';
+            document.getElementById('searchUserInfoModal').style.display = 'flex';
+        }
+        async function showFriendRequests() {
+            document.getElementById('dropdownMenu').style.display = 'none';
+            const res = await fetch('/api/friend/requests');
+            const data = await res.json();
+            if (data.success) {
+                renderFriendRequests(data.data);
+                document.getElementById('friendRequestsModal').style.display = 'flex';
+            } else {
+                alert('获取申请列表失败');
+            }
+        }
+        function renderFriendRequests(requests) {
+            const container = document.getElementById('friendRequestsList');
+            container.innerHTML = '';
+            if (requests.length === 0) {
+                container.innerHTML = '<p style="text-align:center; padding:20px;">暂无好友申请</p>';
+                return;
+            }
+            requests.forEach(req => {
+                const div = document.createElement('div');
+                div.className = 'request-item';
+                const avatarUrl = req.avatar ? req.avatar : 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2220%22%20fill%3D%22%23ccc%22%2F%3E%3C%2Fsvg%3E';
+                div.innerHTML = `
+                    <img src="${escapeHtml(avatarUrl)}" alt="avatar">
+                    <div class="info">
+                        <div><strong>${escapeHtml(req.nickname)}</strong> (ID: ${escapeHtml(req.id)})</div>
+                        <div>用户名: ${escapeHtml(req.username)}</div>
+                    </div>
+                    <button class="primary" onclick="acceptFriendRequest('${escapeHtml(req.id)}')">接受</button>
+                    <button class="secondary" onclick="rejectFriendRequest('${escapeHtml(req.id)}')">拒绝</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+        async function acceptFriendRequest(requesterId) {
+            const res = await fetch('/api/friend/handle', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({requesterId, accept: 'true'})
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('已接受');
+                closeModal('friendRequestsModal');
+                loadFriends();
+                loadFriendRequestCount();
+            } else {
+                alert('接受失败: ' + data.error);
+            }
+        }
+        async function rejectFriendRequest(requesterId) {
+            const res = await fetch('/api/friend/handle', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({requesterId, accept: 'false'})
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('已拒绝');
+                closeModal('friendRequestsModal');
+                loadFriendRequestCount();
+            } else {
+                alert('拒绝失败: ' + data.error);
+            }
+        }
+        async function loadFriendRequestCount() {
+            const res = await fetch('/api/friend/requests');
+            const data = await res.json();
+            if (data.success) {
+                const count = data.data.length;
+                document.getElementById('requestCount').textContent = count;
+            }
+        }
+        // 上传头像
+        async function uploadAvatar() {
+            const file = document.getElementById('newAvatar').files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('avatar', file);
+            const res = await fetch('/api/user/upload-avatar', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                currentUser.avatar = data.data.path;
+                updateUserInfo();
+                closeModal('changeAvatarModal');
+            } else {
+                alert('上传失败: ' + data.error);
+            }
+        }
+        // 修改昵称
+        async function updateNickname() {
+            const nickname = document.getElementById('newNickname').value.trim();
+            if (!nickname) return;
+            const formData = new FormData();
+            formData.append('nickname', nickname);
+            const res = await fetch('/api/user/update', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.data;
+                updateUserInfo();
+                closeModal('changeNicknameModal');
+            } else {
+                alert('更新失败: ' + data.error);
+            }
+        }
+        // 修改密码
+        async function updatePassword() {
+            const old = document.getElementById('oldPassword').value.trim();
+            const newPwd = document.getElementById('newPassword').value.trim();
+            const confirm = document.getElementById('confirmPassword').value.trim();
+            if (!old || !newPwd || !confirm) {
+                alert('请填写所有密码字段');
+                return;
+            }
+            if (newPwd !== confirm) {
+                alert('新密码不一致');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('old_password', old);
+            formData.append('password', newPwd);
+            const res = await fetch('/api/user/update', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.data;
+                alert('密码修改成功');
+                closeModal('changePasswordModal');
+            } else {
+                alert('修改失败: ' + data.error);
+            }
+        }
+        // 修改资料（好友验证方式）
+        async function updateProfile() {
+            const verify_mode = document.getElementById('profileVerifyMode').value;
+            const formData = new FormData();
+            formData.append('verify_mode', verify_mode);
+            const res = await fetch('/api/user/update', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.data;
+                alert('资料更新成功');
+                closeModal('editProfileModal');
+            } else {
+                alert('更新失败: ' + data.error);
+            }
+        }
+        // 修改简介
+        async function updateBio() {
+            const bio = document.getElementById('bioContent').value.trim();
+            const formData = new FormData();
+            formData.append('bio', bio);
+            const res = await fetch('/api/user/update', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.success) {
+                currentUser = data.data;
+                alert('简介更新成功');
+                closeModal('editBioModal');
+            } else {
+                alert('更新失败: ' + data.error);
+            }
+        }
+        // 搜索用户信息
+        async function searchUserInfo() {
+            const userId = document.getElementById('searchUserIdInput').value.trim();
+            if (!userId) {
+                alert('请输入用户ID');
+                return;
+            }
+            const res = await fetch('/api/user/search?userId=' + encodeURIComponent(userId));
+            const data = await res.json();
+            const resultDiv = document.getElementById('userInfoResult');
+            if (data.success) {
+                const user = data.data;
+                const registered = new Date(user.registered * 1000).toLocaleString();
+                resultDiv.innerHTML = `
+                    <div style="border:1px solid var(--border-color); padding:10px; border-radius:5px;">
+                        <p><strong>数字ID:</strong> ${escapeHtml(user.id)}</p>
+                        <p><strong>用户名称:</strong> ${escapeHtml(user.nickname || user.username)}</p>
+                        <p><strong>注册时间:</strong> ${escapeHtml(registered)}</p>
+                        <p><strong>简介:</strong> ${escapeHtml(user.bio || '无')}</p>
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = '<span class="error">' + escapeHtml(data.error) + '</span>';
+            }
+        }
+// 删除当前好友
+async function deleteCurrentFriend() {
+    if (!currentFriendId) {
+        alert('请先选择一个好友');
+        return;
+    }
+    if (!confirm('确定要删除该好友吗？聊天记录也将被清除。')) {
+        return;
+    }
+    const res = await fetch('/api/friend/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ friendId: currentFriendId })
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert('好友已删除');
+        // 清除当前选中状态
+        currentFriendId = null;
+        currentFriendInfo = null;
+        currentFriendIdForMessages = null;
+        currentMessages = [];
+        document.getElementById('chatHeader').textContent = '请选择好友开始聊天';
+        document.getElementById('chatMessages').innerHTML = '';
+        // 刷新好友列表
+        loadFriends();
+        // 可选：关闭下拉菜单
+        document.getElementById('dropdownMenu').style.display = 'none';
+    } else {
+        alert('删除失败：' + (data.error || '未知错误'));
+    }
+}
+        // 好友列表相关
+        async function loadFriends() {
+            const res = await fetch('/api/friends');
+            const data = await res.json();
+            if (data.success) {
+                renderFriendList(data.data);
+            }
+        }
+        function renderFriendList(friends) {
+            const container = document.getElementById('friendList');
+            container.innerHTML = '';
+            const addBtn = document.createElement('div');
+            addBtn.className = 'friend-item';
+            addBtn.innerHTML = '<span style="flex:1;">+ 添加好友</span>';
+            addBtn.onclick = showAddFriend;
+            container.appendChild(addBtn);
+            friends.forEach(f => {
+                const div = document.createElement('div');
+                div.className = 'friend-item';
+                const avatarUrl = f.avatar ? f.avatar : 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2230%22%20height%3D%2230%22%20viewBox%3D%220%200%2030%2030%22%3E%3Ccircle%20cx%3D%2215%22%20cy%3D%2215%22%20r%3D%2215%22%20fill%3D%22%23ccc%22%2F%3E%3C%2Fsvg%3E';
+                div.innerHTML = `<img src="${escapeHtml(avatarUrl)}" class="friend-avatar" alt="avatar"><span>${escapeHtml(f.nickname || f.username)}</span>`;
+                div.dataset.id = f.id;
+                div.onclick = () => selectFriend(f, div);
+                container.appendChild(div);
+            });
+        }
+function selectFriend(friend, element) {
+    document.querySelectorAll('.friend-item').forEach(el => el.classList.remove('active'));
+    element.classList.add('active');
+    currentFriendId = friend.id;
+    currentFriendInfo = friend; // 保存好友信息用于显示头像
+    currentFriendIdForMessages = friend.id; // 记录当前好友
+    currentMessages = []; // 清空消息缓存
+    document.getElementById('chatHeader').textContent = `与 ${friend.nickname || friend.username} 聊天中`;
+    loadMessages(friend.id);
+}
+async function loadMessages(friendId) {
+    const res = await fetch('/api/messages?friend_id=' + friendId);
+    const data = await res.json();
+    const newMessages = data.data;
+    const container = document.getElementById('chatMessages');
+    // 如果当前选中的好友已经改变，则忽略这次返回的数据
+    if (friendId !== currentFriendIdForMessages) {
+        return;
+    }
+    if (currentMessages.length === 0) {
+        // 首次加载（或切换好友后清空），完全重新渲染
+        renderMessages(newMessages);
+    } else {
+        // 同一好友，增量更新
+        if (newMessages.length > currentMessages.length) {
+            const added = newMessages.slice(currentMessages.length);
+            for (const msg of added) {
+                appendMessage(msg);
+            }
+            // 智能滚动：如果用户在底部附近（<50px），则自动滚到底部
+            const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+            if (atBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+            currentMessages = newMessages;
+        }
+    }
+}
+function appendMessage(msg) {
+    const container = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = 'message';
+    if (msg.sender_id === currentUser.id) {
+        div.classList.add('own');
+    }
+    // 获取发送者信息
+    const senderId = msg.sender_id;
+    const isMe = senderId === currentUser.id;
+    const senderInfo = isMe ? currentUser : currentFriendInfo;
+    let avatarUrl = senderInfo?.avatar || 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2220%22%20fill%3D%22%23ccc%22%2F%3E%3C%2Fsvg%3E';
+    let senderName = isMe ? '我' : (senderInfo?.nickname || senderInfo?.username || msg.fromName || msg.sender_id);
+    // 头像
+    const avatarImg = document.createElement('img');
+    avatarImg.className = 'avatar';
+    avatarImg.src = avatarUrl;
+    avatarImg.onerror = () => { avatarImg.src = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2220%22%20fill%3D%22%23ccc%22%2F%3E%3C%2Fsvg%3E'; };
+    div.appendChild(avatarImg);
+    // 右侧列（名称 + 气泡）
+    const rightCol = document.createElement('div');
+    rightCol.className = 'right-col';
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'sender-name';
+    nameDiv.textContent = senderName;
+    rightCol.appendChild(nameDiv);
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    if (msg.type === 'text') {
+        contentDiv.textContent = msg.content;
+    } else if (msg.type === 'image') {
+        const img = document.createElement('img');
+        img.src = msg.content;
+        img.alt = 'image';
+        img.onclick = () => window.open(img.src);
+        contentDiv.appendChild(img);
+    }
+    bubble.appendChild(contentDiv);
+    rightCol.appendChild(bubble);
+    div.appendChild(rightCol);
+    container.appendChild(div);
+}
+function renderMessages(messages) {
+    const container = document.getElementById('chatMessages');
+    container.innerHTML = '';
+    messages.forEach(msg => appendMessage(msg));
+    currentMessages = messages;
+    // 滚动到底部的辅助函数
+    const scrollToBottom = () => {
+        container.scrollTop = container.scrollHeight;
+    };
+    // 立即尝试滚动（此时图片可能未加载，高度可能不完整）
+    scrollToBottom();
+    // 获取所有图片元素
+    const images = container.querySelectorAll('.message .bubble img');
+    if (images.length === 0) return;
+    let loadedCount = 0;
+    const totalImages = images.length;
+    const checkAllLoaded = () => {
+        loadedCount++;
+        if (loadedCount === totalImages) {
+            // 所有图片加载完成，再次滚动到底部
+            scrollToBottom();
+        }
+    };
+    images.forEach(img => {
+        if (img.complete) {
+            // 图片已缓存，立即计数
+            loadedCount++;
+        } else {
+            // 监听加载完成
+            img.addEventListener('load', checkAllLoaded);
+            // 可选：监听加载失败（避免计数卡住）
+            img.addEventListener('error', checkAllLoaded);
+        }
+    });
+    // 如果所有图片一开始就已完成，直接再次滚动
+    if (loadedCount === totalImages) {
+        scrollToBottom();
+    }
+}
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const content = input.value.trim();
+    if (!content || !currentFriendId) return;
+    const res = await fetch('/api/message/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({to_uid: currentFriendId, content, type: 'text'})
+    });
+    const data = await res.json();
+    if (data.success) {
+        input.value = '';
+        loadMessages(currentFriendId);
+        const container = document.getElementById('chatMessages');
+        container.scrollTop = container.scrollHeight;
+    }
+}
+// 支持回车发送（Shift+Enter换行）
+document.getElementById('messageInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+// 图片上传
+document.getElementById('imageUpload').onchange = async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch('/api/upload/chat-image', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.success) {
+        const sendRes = await fetch('/api/message/send', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams({to_uid: currentFriendId, content: data.data.url, type: 'image'})
+        });
+        if (sendRes.ok) {
+            loadMessages(currentFriendId);
+        }
+    } else {
+        alert('上传失败: ' + data.error);
+    }
+    e.target.value = '';
+};
+// 添加好友
+function showAddFriend() {
+    document.getElementById('addFriendModal').style.display = 'flex';
+    document.getElementById('searchResult').innerHTML = '';
+}
+async function searchUser() {
+    const userId = document.getElementById('searchUserId').value.trim();
+    if (!userId) return;
+    const res = await fetch('/api/user/search?userId=' + encodeURIComponent(userId));
+    const data = await res.json();
+    const resultDiv = document.getElementById('searchResult');
+    if (data.success) {
+        resultDiv.innerHTML = `
+            找到用户: ${escapeHtml(data.data.username)} (ID: ${escapeHtml(data.data.id)})<br>
+            <button onclick="addFriend('${escapeHtml(data.data.id)}')">添加好友</button>
+        `;
+    } else {
+        resultDiv.innerHTML = '<span class="error">' + escapeHtml(data.error) + '</span>';
+    }
+}
+async function addFriend(userId) {
+    const res = await fetch('/api/friend/request', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({target_id: userId})
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert('好友请求已发送');
+        closeModal('addFriendModal');
+    } else {
+        alert('失败: ' + data.error);
+    }
+}
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+// 实时消息轮询
+function startMessagePolling() {
+    if (messagePollingInterval) clearInterval(messagePollingInterval);
+    messagePollingInterval = setInterval(() => {
+        if (currentFriendId) {
+            loadMessages(currentFriendId);
+        }
+    }, 2000); // 每2秒刷新
+}
+function stopMessagePolling() {
+    if (messagePollingInterval) {
+        clearInterval(messagePollingInterval);
+        messagePollingInterval = null;
+    }
+}
+// 初始化检查登录状态
+async function init() {
+    const res = await fetch('/api/user/info');
+    const data = await res.json();
+    if (data.success) {
+        currentUser = data.data;
+        document.getElementById('loginRegisterContainer').classList.add('hidden');
+        document.getElementById('mainApp').classList.remove('hidden');
+        updateUserInfo();
+        loadFriends();
+        loadFriendRequestCount();
+        startMessagePolling();
+    } else {
+        document.getElementById('loginRegisterContainer').classList.remove('hidden');
+        document.getElementById('mainApp').classList.add('hidden');
+    }
+}
+// 暗黑模式切换
+const darkModeToggle = document.getElementById('darkModeToggle');
+const prefersDark = localStorage.getItem('darkMode') === 'true';
+if (prefersDark) {
+    document.documentElement.classList.add('dark-mode');
+    darkModeToggle.textContent = '☀️';
+} else {
+    darkModeToggle.textContent = '🌙';
+}
+darkModeToggle.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark-mode');
+    const isDark = document.documentElement.classList.contains('dark-mode');
+    localStorage.setItem('darkMode', isDark);
+    darkModeToggle.textContent = isDark ? '☀️' : '🌙';
+});
+init();
+    </script>
+</body>
+</html>
