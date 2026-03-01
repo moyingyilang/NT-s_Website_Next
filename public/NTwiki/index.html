@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>NTC - 文档Wiki</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="/css/common.css">
+    <link rel="stylesheet" href="/css/dark-mode.css">
+</head>
+<body class="dark-mode">
+    <div class="page-container">
+        <!-- 页面头部 -->
+        <div class="page-header">
+            <button class="back-btn" onclick="window.location.href='/'" title="返回首页">
+                <i class="fa fa-arrow-left"></i>
+            </button>
+            <span>文档Wiki</span>
+        </div>
+        <!-- 页面内容：左右布局 -->
+        <div class="page-content" style="display: flex; gap: 20px; padding: 20px; height: calc(100vh - 60px);">
+            <!-- 左侧文档列表 -->
+            <div style="width: 300px; min-width: 300px; height: 100%; overflow-y: auto;">
+                <div class="card" style="height: 100%;">
+                    <div class="card-title">
+                        文档列表
+                        <button class="btn btn-primary" style="float: right; padding: 4px 8px; font-size: 12px;" onclick="uploadDoc()">
+                            <i class="fa fa-upload"></i> 上传
+                        </button>
+                    </div>
+                    <div id="wikiList" style="min-height: 200px; margin-top: 10px;">
+                        <div style="text-align: center; color: #999; padding: 30px 0;">加载中...</div>
+                    </div>
+                </div>
+            </div>
+            <!-- 右侧文档内容 -->
+            <div style="flex: 1; height: 100%; overflow-y: auto;">
+                <div class="card" style="height: 100%;">
+                    <div class="card-title" id="docTitle">请选择左侧文档查看</div>
+                    <div style="padding: 20px; line-height: 1.8; font-size: 15px;" id="docContent">
+                        <div style="text-align: center; color: #999; margin-top: 50px;">
+                            <i class="fa fa-file-text-o" style="font-size: 50px; margin-bottom: 20px;"></i>
+                            <br>暂无文档内容
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传文档弹层 -->
+    <div class="modal" id="uploadDocModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('uploadDocModal')">&times;</span>
+            <h3>上传Markdown文档</h3>
+            <input type="text" id="docName" placeholder="请输入文档名称（无需.md）" style="margin-top: 10px;">
+            <input type="file" id="docFile" accept=".md" style="margin-top: 10px;">
+            <button class="btn btn-primary" style="margin-top: 20px;" onclick="submitUploadDoc()">确认上传</button>
+        </div>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/NTwiki/wiki.js"></script>
+    <script>
+        window.onload = async function() {
+            const isLoggedIn = await checkLoginStatus();
+            if (!isLoggedIn) {
+                window.location.href = '/';
+            } else {
+                loadWikiList(); // 加载文档列表
+            }
+        }
+    </script>
+</body>
+</html>
