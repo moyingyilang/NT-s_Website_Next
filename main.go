@@ -1,344 +1,765 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
-    "time"
-    "fmt"
+	"strings"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/google/uuid"
 )
 
-// 统一响应结构体
-type Response struct {
-	Code int         `json:"code"`
-	Msg  string      `json:"msg"`
-	Data interface{} `json:"data,omitempty"`
-}
-
-func success(c *fiber.Ctx, data interface{}) error {
-	return c.JSON(Response{200, "成功", data})
-}
-
-func fail(c *fiber.Ctx, msg string) error {
-	return c.JSON(Response{400, msg, nil})
-}
-
-// JWT中间件
-func jwtMiddleware() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		tokenStr := c.Cookies("ntc_token") // 从Cookie获取token，更安全
-		if tokenStr == "" {
-			return fail(c, "未登录")
-		}
-
-		claims, err := ParseToken(tokenStr)
-		if err != nil {
-			return fail(c, "登录过期")
-		}
-
-		c.Locals("user_id", claims.UserID)
-		return c.Next()
-	}
-}
-
 func main() {
-	// 初始化DB
 	InitDB()
 
-	// 创建Fiber实例
-	app := fiber.New()
-	app.Use(recover.New(), cors.New())
-
-	// 静态文件（前端页面）
-	app.Static("/", "./web")
-	// 暴露存储目录（图片/文件访问）
-	app.Static("/storage", "./storage")
-
-	// 公开接口
-	public := app.Group("/api/public")
-
-	// 登录/注册
-	public.Post("/register", func(c *fiber.Ctx) error {
-		username := c.FormValue("username")
-		password := c.FormValue("password")
-		if username == "" || password == "" {
-			return fail(c, "用户名和密码不能为空")
-		}
-		user, err := Register(username, password)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		token, _ := GenerateToken(user.ID)
-		// 设置Cookie（有效期24小时）
-		c.Cookie(&fiber.Cookie{
-			Name:     "ntc_token",
-			Value:    token,
-			Expires:  time.Now().Add(time.Second * JWTExpire),
-			HTTPOnly: true,
-			SameSite: "Lax",
-		})
-		return success(c, user)
+	app := fiber.New(fiber.Config{
+		DisablePreParseMultipartForm: true,
 	})
 
-	public.Post("/login", func(c *fiber.Ctx) error {
-		username := c.FormValue("username")
-		password := c.FormValue("password")
-		token, user, err := Login(username, password)
-		if err != nil {
-			return fail(c, err.Error())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+	}))
+
+	app.Static("/An", "./static/An")
+	app.Static("/NTwiki", "./static/NTwiki")
+	app.Static("/upF", "./static/upF")
+	app.Static("/data", "./data")
+
+	api := app.Group("/api")
+
+	// 完全对齐PHP接口路由
+	api.Post("/register", RegisterHandler)
+	api.Post("/login", LoginHandler)
+	api.Post("/logout", LogoutHandler)
+	api.Get("/user/info", UserInfoHandler)
+	api.Post("/user/update", UpdateUserHandler)
+	api.Post("/user/avatar", UploadAvatarHandler)
+	api.Get("/user/search", SearchUserHandler)
+	api.Post("/friend/request", SendFriendRequestHandler)
+	api.Post("/friend/accept", AcceptFriendRequestHandler)
+	api.Post("/friend/reject", RejectFriendRequestHandler)
+	api.Get("/friend/list", FriendListHandler)
+	api.Post("/friend/delete", DeleteFriendHandler)
+	api.Get("/message/list", MessageListHandler)
+	api.Post("/message/send", SendMessageHandler)
+	api.Post("/message/image", UploadImageHandler)
+	api.Get("/announcement/list", AnnouncementListHandler)
+	api.Post("/announcement/create", CreateAnnouncementHandler)
+	api.Post("/upload/chunk", UploadChunkHandler)
+	api.Post("/upload/merge", MergeChunkHandler)
+	api.Get("/upload/status", UploadStatusHandler)
+	api.Get("/upload/search", SearchFileHandler)
+	api.Get("/upload/download", DownloadFileHandler)
+
+	log.Println("服务器启动在 :8080")
+	log.Fatal(app.Listen(":8080"))
+}
+
+// 1. 认证控制器（完全对标PHP）
+func RegisterHandler(c *fiber.Ctx) error {
+	username := c.FormValue("username")
+	password := c.FormValue("password")
+
+	if username == "" || password == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "用户名和密码不能为空"})
+	}
+
+	if _, err := GetUserByUsername(username); err == nil {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "用户名已存在"})
+	}
+
+	user := &User{
+		ID:         GenerateUserID(),
+		Username:   username,
+		Password:   HashPassword(password),
+		Nickname:   username,
+		VerifyMode: "need_verify",
+		Registered: time.Now().Unix(),
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	file, err := c.FormFile("avatar")
+	if err == nil {
+		mime := file.Header.Get("Content-Type")
+		if !IsAllowedImageType(mime) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "只允许上传JPG、PNG、GIF、WEBP格式的图片"})
 		}
-		// 设置Cookie
-		c.Cookie(&fiber.Cookie{
-			Name:     "ntc_token",
-			Value:    token,
-			Expires:  time.Now().Add(time.Second * JWTExpire),
-			HTTPOnly: true,
-			SameSite: "Lax",
-		})
-		return success(c, user)
+		if file.Size > 2*1024*1024 {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "图片不能超过2MB"})
+		}
+
+		ext := GetFileExt(file.Filename)
+		filename := uuid.NewString() + "." + ext
+		savePath := filepath.Join(AvatarDir, filename)
+		if err := c.SaveFile(file, savePath); err != nil {
+			return c.Status(500).JSON(fiber.Map{"success": false, "error": "头像保存失败"})
+		}
+
+		user.Avatar = "/data/avatars/" + filename
+	}
+
+	if err := CreateUser(user); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "注册失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "user": user})
+}
+
+func LoginHandler(c *fiber.Ctx) error {
+	usernameOrId := c.FormValue("username")
+	password := c.FormValue("password")
+
+	if usernameOrId == "" || password == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "请输入用户名/ID和密码"})
+	}
+
+	user, err := GetUserByUsername(usernameOrId)
+	if err != nil {
+		user, err = GetUserByID(usernameOrId)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"success": false, "error": "用户名/ID或密码错误"})
+		}
+	}
+
+	if !CheckPassword(password, user.Password) {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "用户名/ID或密码错误"})
+	}
+
+	token, err := GenerateToken(user.ID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "生成令牌失败"})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"token":   token,
+		"user":    user,
+	})
+}
+
+func LogoutHandler(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{"success": true})
+}
+
+func UserInfoHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	if token == "" {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "令牌无效"})
+	}
+
+	user, err := GetUserByID(claims.UserID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "用户不存在"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "user": user})
+}
+
+// 2. 用户控制器（完全对标PHP）
+func UpdateUserHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	user, err := GetUserByID(claims.UserID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "用户不存在"})
+	}
+
+	oldPwd := c.FormValue("old_password")
+	newPwd := c.FormValue("password")
+	if oldPwd != "" && newPwd != "" {
+		if !CheckPassword(oldPwd, user.Password) {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": "旧密码错误"})
+		}
+		user.Password = HashPassword(newPwd)
+	}
+
+	if nickname := c.FormValue("nickname"); nickname != "" {
+		user.Nickname = nickname
+	}
+
+	if bio := c.FormValue("bio"); bio != "" {
+		user.Bio = bio
+	}
+
+	if verifyMode := c.FormValue("verify_mode"); verifyMode != "" {
+		user.VerifyMode = verifyMode
+	}
+
+	user.UpdatedAt = time.Now()
+	if err := UpdateUser(user); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "更新失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "user": user})
+}
+
+func UploadAvatarHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "未选择文件"})
+	}
+
+	if file.Size > 2*1024*1024 {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "图片不能超过2MB"})
+	}
+
+	mime := file.Header.Get("Content-Type")
+	if !IsAllowedImageType(mime) {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "只允许上传JPG、PNG、GIF、WEBP格式的图片"})
+	}
+
+	ext := GetFileExt(file.Filename)
+	filename := uuid.NewString() + "." + ext
+	savePath := filepath.Join(AvatarDir, filename)
+	if err := c.SaveFile(file, savePath); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "上传失败"})
+	}
+
+	user, err := GetUserByID(claims.UserID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "用户不存在"})
+	}
+
+	user.Avatar = "/data/avatars/" + filename
+	if err := UpdateUser(user); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "更新头像失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "path": user.Avatar})
+}
+
+func SearchUserHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	// 修正：使用claims变量（解决未使用报错）
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	userId := c.Query("userId")
+	if userId == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "请输入用户ID"})
+	}
+
+	// 额外校验：不能搜索自己（对标PHP逻辑）
+	if userId == claims.UserID {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "不能搜索自己"})
+	}
+
+	user, err := GetUserByID(userId)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "用户不存在"})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"user":    fiber.Map{"id": user.ID, "username": user.Username, "nickname": user.Nickname},
+	})
+}
+
+// 3. 好友控制器（完全对标PHP）
+func FriendListHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	friends, err := GetFriends(claims.UserID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "获取好友列表失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "friends": friends})
+}
+
+func SendFriendRequestHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	targetID := c.FormValue("targetId")
+	if targetID == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "目标用户ID不能为空"})
+	}
+
+	if targetID == claims.UserID {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "不能添加自己为好友"})
+	}
+
+	targetUser, err := GetUserByID(targetID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "目标用户不存在"})
+	}
+
+	if targetUser.VerifyMode == "deny_all" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "对方禁止添加好友"})
+	}
+
+	// 修正：gorm事务无JSON方法，先Commit再返回JSON
+	if targetUser.VerifyMode == "allow_all" {
+		tx := DB.Begin()
+		if err := tx.Create(&Friend{UserID: claims.UserID, FriendID: targetID, Status: StatusAccepted}).Error; err != nil {
+			tx.Rollback()
+			return c.Status(500).JSON(fiber.Map{"success": false, "error": "添加好友失败"})
+		}
+		if err := tx.Create(&Friend{UserID: targetID, FriendID: claims.UserID, Status: StatusAccepted}).Error; err != nil {
+			tx.Rollback()
+			return c.Status(500).JSON(fiber.Map{"success": false, "error": "添加好友失败"})
+		}
+		// 先执行Commit并判断错误
+		if err := tx.Commit().Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"success": false, "error": "添加好友失败"})
+		}
+		return c.JSON(fiber.Map{"success": true, "message": "添加好友成功"})
+	}
+
+	if err := SendFriendRequest(claims.UserID, targetID); err != nil {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "好友请求已发送"})
+}
+
+func AcceptFriendRequestHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	requesterID := c.FormValue("requesterId")
+	if err := AcceptFriendRequest(requesterID, claims.UserID); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "接受请求失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true})
+}
+
+func RejectFriendRequestHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	requesterID := c.FormValue("requesterId")
+	if err := DB.Where("user_id = ? AND friend_id = ? AND status = ?", claims.UserID, requesterID, StatusPending).Delete(&Friend{}).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "拒绝失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true})
+}
+
+func DeleteFriendHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	friendID := c.FormValue("friendId")
+	if friendID == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "缺少好友ID"})
+	}
+
+	tx := DB.Begin()
+	if err := tx.Where("user_id = ? AND friend_id = ? AND status = ?", claims.UserID, friendID, StatusAccepted).Delete(&Friend{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "删除失败"})
+	}
+
+	if err := tx.Where("user_id = ? AND friend_id = ? AND status = ?", friendID, claims.UserID, StatusAccepted).Delete(&Friend{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "删除失败"})
+	}
+
+	if err := tx.Where("(sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)", claims.UserID, friendID, friendID, claims.UserID).Delete(&Message{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "删除消息失败"})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "删除失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true})
+}
+
+// 4. 消息控制器（完全对标PHP）
+func SendMessageHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	friendID := c.FormValue("friendId")
+	content := c.FormValue("content")
+	msgType := c.FormValue("type", MessageTypeText)
+
+	if friendID == "" || content == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "参数不足"})
+	}
+
+	// 校验好友关系（对标PHP）
+	var isFriend bool
+	if err := DB.Where("user_id = ? AND friend_id = ? AND status = ?", claims.UserID, friendID, StatusAccepted).First(&Friend{}).Error; err == nil {
+		isFriend = true
+	}
+	if !isFriend {
+		return c.Status(403).JSON(fiber.Map{"success": false, "error": "不是好友关系"})
+	}
+
+	msg := &Message{
+		SenderID:   claims.UserID,
+		ReceiverID: friendID,
+		Content:    content,
+		Type:       msgType,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	if err := SaveMessage(msg); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "发送消息失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true})
+}
+
+func MessageListHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	claims, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	friendID := c.Query("friendId")
+	if friendID == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "缺少好友ID"})
+	}
+
+	messages, err := GetMessages(claims.UserID, friendID)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "获取消息失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "messages": messages})
+}
+
+func UploadImageHandler(c *fiber.Ctx) error {
+	token := c.Get("Authorization")
+	_, err := VerifyToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "未选择文件"})
+	}
+
+	if file.Size > 10*1024*1024 {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "图片不能超过10MB"})
+	}
+
+	mime := file.Header.Get("Content-Type")
+	if !IsAllowedImageType(mime) {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "只允许上传图片"})
+	}
+
+	md5Str, err := CalculateMD5FromFile(file)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "计算MD5失败"})
+	}
+
+	savePath := filepath.Join(UploadDir, md5Str)
+	if err := c.SaveFile(file, savePath); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "上传失败"})
+	}
+
+	// 修正：处理json.Marshal多返回值（必判err）
+	fileMapData, _ := os.ReadFile(FileMap)
+	var fileMap []map[string]string
+	_ = json.Unmarshal(fileMapData, &fileMap)
+	fileMap = append(fileMap, map[string]string{
+		"original": file.Filename,
+		"md5":      md5Str,
+		"mime":     mime,
+	})
+	// 强制处理Marshal错误
+	fileMapJson, err := json.Marshal(fileMap)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "保存文件映射失败"})
+	}
+	_ = os.WriteFile(FileMap, fileMapJson, 0644)
+
+	return c.JSON(fiber.Map{"success": true, "fileId": md5Str})
+}
+
+// 5. 公告控制器（完全对标PHP）
+func AnnouncementListHandler(c *fiber.Ctx) error {
+	anns, err := GetVisibleAnnouncements()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "获取公告失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "announcements": anns})
+}
+
+func CreateAnnouncementHandler(c *fiber.Ctx) error {
+	// 对标PHP的admin=yes权限控制
+	if c.Query("admin") != "yes" {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "页面不存在"})
+	}
+
+	title := c.FormValue("title")
+	summary := c.FormValue("summary")
+	visible := c.FormValue("visible") == "on"
+
+	if title == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "公告标题不能为空"})
+	}
+
+	// 处理标签（对标PHP）
+	var tags []string
+	if err := json.Unmarshal([]byte(c.FormValue("tags")), &tags); err != nil {
+		tags = []string{}
+	}
+
+	ann := &Announcement{
+		Title:     title,
+		Summary:   summary,
+		Date:      time.Now().Format("2006-01-02"),
+		Tags:      tags,
+		Visible:   visible,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := CreateAnnouncement(ann); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "创建公告失败"})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "announcement": ann})
+}
+
+// 6. 分块上传控制器（完全对标PHP）
+func UploadChunkHandler(c *fiber.Ctx) error {
+	fileId := c.FormValue("fileId")
+	totalChunks, _ := strconv.Atoi(c.FormValue("totalChunks"))
+	chunkIndex, _ := strconv.Atoi(c.FormValue("chunkIndex"))
+	fileName := c.FormValue("fileName")
+	fileSize, _ := strconv.ParseInt(c.FormValue("fileSize"), 10, 64)
+	chunkSize, _ := strconv.ParseInt(c.FormValue("chunkSize"), 10, 64)
+
+	// 对标PHP的参数校验
+	if totalChunks <= 0 || chunkIndex < 0 || chunkIndex >= totalChunks {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "无效的块索引或总块数"})
+	}
+	if fileName == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "缺少文件名"})
+	}
+	if fileSize > MaxFileSize {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "文件超过最大允许大小"})
+	}
+	if chunkSize < MinChunkSize || chunkSize > MaxChunkSize {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "块大小超出允许范围"})
+	}
+
+	ext := GetFileExt(fileName)
+	if !IsAllowedExtension(ext) {
+		// 修正：导入strings包并使用
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "不支持的文件类型，仅允许：" + strings.Join(AllowedExtensions, ", ")})
+	}
+
+	file, err := c.FormFile("chunkFile")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "分块文件上传失败"})
+	}
+	if file.Size > chunkSize {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "上传的块大小超过声明值"})
+	}
+
+	chunkPath := filepath.Join(TempDir, fmt.Sprintf("%s_chunk_%d.part", fileId, chunkIndex))
+	if err := c.SaveFile(file, chunkPath); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "保存分块失败"})
+	}
+
+	// 保存上传信息（对标PHP）
+	infoPath := filepath.Join(TempDir, fmt.Sprintf("%s_info.json", fileId))
+	info := map[string]interface{}{
+		"uploadedChunks": []int{chunkIndex},
+		"totalChunks":    totalChunks,
+		"fileName":       fileName,
+		"fileSize":       fileSize,
+		"chunkSize":      chunkSize,
+	}
+	if _, err := os.Stat(infoPath); err == nil {
+		var oldInfo map[string]interface{}
+		data, _ := os.ReadFile(infoPath)
+		_ = json.Unmarshal(data, &oldInfo)
+		info["uploadedChunks"] = append(oldInfo["uploadedChunks"].([]int), chunkIndex)
+	}
+	// 修正：处理json.Marshal多返回值
+	infoJson, err := json.Marshal(info)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "保存上传信息失败"})
+	}
+	_ = os.WriteFile(infoPath, infoJson, 0644)
+
+	return c.JSON(fiber.Map{"success": true, "chunkIndex": chunkIndex})
+}
+
+func MergeChunkHandler(c *fiber.Ctx) error {
+	fileId := c.FormValue("fileId")
+	fileName := c.FormValue("fileName")
+	totalChunks, _ := strconv.Atoi(c.FormValue("totalChunks"))
+
+	if fileName == "" || totalChunks <= 0 {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "参数不足"})
+	}
+
+	// 校验分块完整性（对标PHP）
+	infoPath := filepath.Join(TempDir, fmt.Sprintf("%s_info.json", fileId))
+	if _, err := os.Stat(infoPath); err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "未找到上传信息"})
+	}
+	data, _ := os.ReadFile(infoPath)
+	var info map[string]interface{}
+	_ = json.Unmarshal(data, &info)
+	uploadedChunks := info["uploadedChunks"].([]int)
+	if len(uploadedChunks) != totalChunks {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "分块不完整，无法合并"})
+	}
+
+	ext := GetFileExt(fileName)
+	uniqueId := GenerateUniqueId()
+	finalName := uniqueId + "." + ext
+	finalPath := filepath.Join(UploadDir, finalName)
+
+	finalFile, err := os.Create(finalPath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "无法创建最终文件"})
+	}
+	defer finalFile.Close()
+
+	// 合并分块（对标PHP）
+	for i := 0; i < totalChunks; i++ {
+		chunkPath := filepath.Join(TempDir, fmt.Sprintf("%s_chunk_%d.part", fileId, i))
+		if _, err := os.Stat(chunkPath); err != nil {
+			return c.Status(400).JSON(fiber.Map{"success": false, "error": fmt.Sprintf("缺少分块 %d", i)})
+		}
+		chunkFile, _ := os.Open(chunkPath)
+		_, _ = io.Copy(finalFile, chunkFile)
+		_ = chunkFile.Close()
+		_ = os.Remove(chunkPath)
+	}
+
+	// 计算MD5+保存映射（对标PHP）
+	md5Str, _ := CalculateMD5(finalPath)
+	fileInfo, _ := finalFile.Stat()
+	// 修正：调用首字母大写的SaveFileMapping（Go导出规则）
+	_ = SaveFileMapping(uniqueId, &UploadFile{
+		Original: fileName,
+		Path:     finalName,
+		Size:     fileInfo.Size(),
+		MD5:      md5Str,
+		Time:     time.Now().Unix(),
 	})
 
-	public.Post("/logout", func(c *fiber.Ctx) error {
-		// 清除Cookie
-		c.Cookie(&fiber.Cookie{
-			Name:    "ntc_token",
-			Value:   "",
-			Expires: time.Now().Add(-time.Hour),
-		})
-		return success(c, "退出成功")
+	// 清理临时文件（对标PHP）
+	_ = os.Remove(infoPath)
+
+	return c.JSON(fiber.Map{
+		"success":     true,
+		"fileId":      uniqueId,
+		"downloadUrl": fmt.Sprintf("/upF?action=download&id=%s", uniqueId),
+		"md5":         md5Str,
 	})
+}
 
-	// 公告接口
-	public.Get("/announcements", func(c *fiber.Ctx) error {
-		anns, err := GetAnnouncements()
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, anns)
-	})
+func UploadStatusHandler(c *fiber.Ctx) error {
+	fileId := c.Query("fileId")
+	if fileId == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "缺少fileId参数"})
+	}
 
-	// Wiki接口（公开访问）
-	public.Get("/wiki/docs", func(c *fiber.Ctx) error {
-		docs, err := GetWikiDocs()
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, docs)
-	})
+	infoPath := filepath.Join(TempDir, fmt.Sprintf("%s_info.json", fileId))
+	if _, err := os.Stat(infoPath); err != nil {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "未找到上传信息"})
+	}
 
-	public.Get("/wiki/doc", func(c *fiber.Ctx) error {
-		docName := c.Query("name")
-		content, err := GetWikiDocContent(docName)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, content)
-	})
+	data, _ := os.ReadFile(infoPath)
+	var info map[string]interface{}
+	_ = json.Unmarshal(data, &info)
+	uploadedChunks := info["uploadedChunks"].([]int)
 
-	// 需登录接口
-	auth := app.Group("/api", jwtMiddleware())
+	return c.JSON(fiber.Map{"success": true, "uploadedChunks": uploadedChunks})
+}
 
-	// 用户信息
-	auth.Get("/user/info", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		user, err := GetUserByID(uid)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, user)
-	})
+func SearchFileHandler(c *fiber.Ctx) error {
+	md5 := c.Query("md5")
+	if md5 == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "缺少MD5参数"})
+	}
 
-	// 好友相关
-	auth.Post("/friend/request", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		targetID := c.FormValue("target_id")
-		if err := SendFriendRequest(uid, targetID); err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, "申请已发送")
-	})
+	files, urls := SearchFileByMD5(md5)
+	return c.JSON(fiber.Map{"success": true, "files": files, "downloadUrls": urls})
+}
 
-	auth.Post("/friend/handle", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		fromID := c.FormValue("from_id")
-		accept := c.FormValue("accept") == "true"
-		if err := HandleFriendRequest(uid, fromID, accept); err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, "处理成功")
-	})
+func DownloadFileHandler(c *fiber.Ctx) error {
+	fileId := c.Query("id")
+	if fileId == "" {
+		return c.Status(400).JSON(fiber.Map{"success": false, "error": "无效的文件编号"})
+	}
 
-	auth.Get("/friends", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		friends, err := GetFriendList(uid)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, friends)
-	})
+	data, err := os.ReadFile(FileMap)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "读取文件映射失败"})
+	}
 
-	auth.Get("/friend/requests", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		reqs, err := GetFriendRequests(uid)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, reqs)
-	})
+	var fileMap map[string]*UploadFile
+	if err := json.Unmarshal(data, &fileMap); err != nil {
+		return c.Status(500).JSON(fiber.Map{"success": false, "error": "解析文件映射失败"})
+	}
 
-	// 聊天相关
-	auth.Post("/message/send", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		toUID := c.FormValue("to_uid")
-		content := c.FormValue("content")
-		typ := c.FormValue("type", MessageTypeText)
-		if toUID == "" || content == "" {
-			return fail(c, "参数不能为空")
-		}
-		if err := SaveMessage(uid, toUID, content, typ); err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, "发送成功")
-	})
+	fileInfo, ok := fileMap[fileId]
+	if !ok {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "文件不存在"})
+	}
 
-	auth.Get("/messages", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		friendID := c.Query("friend_id")
-		limit, _ := strconv.Atoi(c.Query("limit", "20"))
-		msgs, err := GetMessages(uid, friendID, limit)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, msgs)
-	})
+	filePath := filepath.Join(UploadDir, fileInfo.Path)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return c.Status(404).JSON(fiber.Map{"success": false, "error": "物理文件不存在"})
+	}
 
-	// 文件上传相关
-	auth.Post("/upload/file", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		file, err := c.FormFile("file")
-		if err != nil {
-			return fail(c, "未选择文件")
-		}
-		src, err := file.Open()
-		if err != nil {
-			return fail(c, "打开文件失败")
-		}
-		defer src.Close()
-
-		fileModel, err := UploadFile(uid, src.(*os.File), file.Filename)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, fiber.Map{
-			"url": "/storage/" + filepath.Base(fileModel.Path),
-			"md5": fileModel.MD5,
-		})
-	})
-
-	auth.Post("/upload/chat-image", func(c *fiber.Ctx) error {
-		uid := c.Locals("user_id").(string)
-		file, err := c.FormFile("image")
-		if err != nil {
-			return fail(c, "未选择图片")
-		}
-		src, err := file.Open()
-		if err != nil {
-			return fail(c, "打开图片失败")
-		}
-		defer src.Close()
-
-		path, err := UploadChatImage(uid, src.(*os.File), file.Filename)
-		if err != nil {
-			return fail(c, err.Error())
-		}
-		return success(c, fiber.Map{
-			"url": "/storage/" + filepath.Base(path),
-		})
-	})
-	
-	// 上传头像接口
-auth.Post("/user/upload-avatar", func(c *fiber.Ctx) error {
-    uid := c.Locals("user_id").(string)
-    file, err := c.FormFile("avatar")
-    if err != nil {
-        return fail(c, "未选择头像")
-    }
-    src, err := file.Open()
-    if err != nil {
-        return fail(c, "打开头像失败")
-    }
-    defer src.Close()
-
-    path, err := UploadUserAvatar(uid, src.(*os.File))
-    if err != nil {
-        return fail(c, err.Error())
-    }
-    return success(c, fiber.Map{"path": path})
-})
-
-// 更新用户资料接口
-auth.Post("/user/update", func(c *fiber.Ctx) error {
-    uid := c.Locals("user_id").(string)
-    updateData := make(map[string]interface{})
-
-    // 解析表单数据
-    if oldPwd := c.FormValue("old_password"); oldPwd != "" {
-        updateData["old_password"] = oldPwd
-        updateData["password"] = c.FormValue("password")
-    }
-    if nickname := c.FormValue("nickname"); nickname != "" {
-        updateData["nickname"] = nickname
-    }
-    if verifyMode := c.FormValue("verify_mode"); verifyMode != "" {
-        updateData["verify_mode"] = verifyMode
-    }
-    if bio := c.FormValue("bio"); bio != "" {
-        updateData["bio"] = bio
-    }
-
-    user, err := UpdateUser(uid, updateData)
-    if err != nil {
-        return fail(c, err.Error())
-    }
-    return success(c, user)
-})
-
-// 搜索用户接口
-auth.Get("/user/search", func(c *fiber.Ctx) error {
-    uid := c.Locals("user_id").(string)
-    targetID := c.Query("userId")
-    if targetID == uid {
-        return fail(c, "不能搜索自己")
-    }
-
-    user, err := GetUserByID(targetID)
-    if err != nil {
-        return fail(c, "用户不存在")
-    }
-    return success(c, fiber.Map{
-        "id":        user.ID,
-        "username":  user.Username,
-        "nickname":  user.Nickname,
-        "bio":       user.Bio,
-        "registered": user.Registered,
-    })
-})
-
-// 删除好友接口
-auth.Post("/friend/delete", func(c *fiber.Ctx) error {
-    uid := c.Locals("user_id").(string)
-    friendID := c.FormValue("friendId")
-    if err := DeleteFriend(uid, friendID); err != nil {
-        return fail(c, err.Error())
-    }
-    return success(c, "删除成功")
-})
-
-
-	// 启动服务
-	fmt.Println("服务启动成功：http://127.0.0.1:8080")
-	app.Listen(":8080")
+	c.Attachment(filePath, fileInfo.Original)
+	return c.SendFile(filePath)
 }
