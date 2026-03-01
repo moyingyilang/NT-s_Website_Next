@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+    "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/google/uuid"
@@ -22,6 +22,10 @@ func main() {
 	app := fiber.New(fiber.Config{
 		DisablePreParseMultipartForm: true,
 	})
+	
+	app.Use(logger.New(logger.Config{
+ 	Format: "[${time}] ${method} ${path} | status: ${status} | ip: ${ip}\n",
+ 	}))
 
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
@@ -31,32 +35,28 @@ func main() {
 	app.Static("/", "./static")
 	app.Static("/data", "./data")
 	
-	api := app.Group("/api")
-
-	// 完全对齐PHP接口路由
-	api.Post("/register", RegisterHandler)
-	api.Post("/login", LoginHandler)
-	api.Post("/logout", LogoutHandler)
-	api.Get("/user/info", UserInfoHandler)
-	api.Post("/user/update", UpdateUserHandler)
-	api.Post("/user/avatar", UploadAvatarHandler)
-	api.Get("/user/search", SearchUserHandler)
-	api.Post("/friend/request", SendFriendRequestHandler)
-	api.Post("/friend/accept", AcceptFriendRequestHandler)
-	api.Post("/friend/reject", RejectFriendRequestHandler)
-	api.Get("/friend/list", FriendListHandler)
-	api.Post("/friend/delete", DeleteFriendHandler)
-	api.Get("/message/list", MessageListHandler)
-	api.Post("/message/send", SendMessageHandler)
-	api.Post("/message/image", UploadImageHandler)
-	api.Get("/announcement/list", AnnouncementListHandler)
-	api.Post("/announcement/create", CreateAnnouncementHandler)
-	api.Post("/upload/chunk", UploadChunkHandler)
-	api.Post("/upload/merge", MergeChunkHandler)
-	api.Get("/upload/status", UploadStatusHandler)
-	api.Get("/upload/search", SearchFileHandler)
-	api.Get("/upload/download", DownloadFileHandler)
-
+	app.Post("/api/public/register", RegisterHandler)
+    app.Post("/api/public/login", LoginHandler)
+    app.Get("/api/public/announcements", AnnouncementListHandler)
+    app.Get("/api/user/info", UserInfoHandler)
+    app.Get("/api/friends", FriendListHandler)
+    app.Post("/api/logout", LogoutHandler)
+    app.Post("/api/user/update", UpdateUserHandler)
+    app.Post("/api/user/avatar", UploadAvatarHandler)
+    app.Get("/api/user/search", SearchUserHandler)
+    app.Post("/api/friend/request", SendFriendRequestHandler)
+    app.Post("/api/friend/accept", AcceptFriendRequestHandler)
+    app.Post("/api/friend/reject", RejectFriendRequestHandler)
+    app.Post("/api/friend/delete", DeleteFriendHandler)
+    app.Get("/api/message/list", MessageListHandler)
+    app.Post("/api/message/send", SendMessageHandler)
+    app.Post("/api/message/image", UploadImageHandler)
+    app.Post("/api/announcement/create", CreateAnnouncementHandler)
+    app.Post("/api/upload/chunk", UploadChunkHandler)
+    app.Post("/api/upload/merge", MergeChunkHandler)
+    app.Get("/api/upload/status", UploadStatusHandler)
+    app.Get("/api/upload/search", SearchFileHandler)
+    app.Get("/api/upload/download", DownloadFileHandler)
 	log.Println("服务器启动在 :8080")
 	log.Fatal(app.Listen(":8080"))
 }
