@@ -1,0 +1,4 @@
+database.db
+*.db
+*.log
+.DS_Store
