@@ -28,11 +28,9 @@ func main() {
 		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
 	}))
 
-	app.Static("/An", "./static/An")
-	app.Static("/NTwiki", "./static/NTwiki")
-	app.Static("/upF", "./static/upF")
+	app.Static("/", "./static")
 	app.Static("/data", "./data")
-
+	
 	api := app.Group("/api")
 
 	// 完全对齐PHP接口路由
