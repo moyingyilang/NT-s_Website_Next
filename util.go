@@ -46,30 +46,47 @@ func GenerateToken(userID string) (string, error) {
 	return token.SignedString([]byte(JWTSecret))
 }
 
-// 验证JWT令牌（补全截断逻辑，跨文件调用）
+// 验证JWT令牌（集成黑名单校验，跨文件调用）
 func VerifyToken(tokenStr string) (*Claims, error) {
-	// 处理Bearer前缀（前端常见传参格式）
+	// 1. 处理前端可能传递的 "Bearer " 前缀（如 Authorization: Bearer <token>）
 	if strings.HasPrefix(tokenStr, "Bearer ") {
 		tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
 	}
 
-	// 解析token并校验签名
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		// 校验签名算法
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("令牌签名算法非法")
-		}
-		return []byte(JWTSecret), nil
-	})
+	// 2. 黑名单校验：判断Token是否已被Logout标记为失效（同一package下直接访问main.go的全局变量）
+	mutex.Lock() // 加锁防止并发读写冲突
+	defer mutex.Unlock() // 函数结束自动解锁
+	if tokenBlacklist[tokenStr] {
+		return nil, errors.New("令牌已失效")
+	}
+
+	// 3. 解析JWT令牌并校验签名
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&Claims{}, // 用于接收解析后的声明
+		func(token *jwt.Token) (interface{}, error) {
+			// 校验签名算法是否为预期的HS256（防止算法篡改攻击）
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("令牌签名算法非法")
+			}
+			// 返回JWT密钥（复用model.go定义的全局变量JWTSecret，确保与GenerateToken一致）
+			return []byte(JWTSecret), nil
+		},
+	)
+
+	// 4. 处理解析错误（如Token格式错误、签名无效、已过期等）
 	if err != nil {
 		return nil, errors.New("令牌无效或已过期")
 	}
 
-	// 校验token有效性并返回声明
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return claims, nil
+	// 5. 校验Token有效性并提取Claims（用户ID等信息）
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, errors.New("令牌验证失败")
 	}
-	return nil, errors.New("令牌验证失败")
+
+	// 6. 验证通过，返回解析后的用户声明
+	return claims, nil
 }
 
 // 获取文件扩展名（小写，跨文件调用，main.go多处用到）
