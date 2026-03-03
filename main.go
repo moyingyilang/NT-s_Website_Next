@@ -78,6 +78,9 @@ func main() {
 	app.Post("/api/friend/accept", AcceptFriendRequestHandler)
 	app.Post("/api/friend/reject", RejectFriendRequestHandler)
 	app.Post("/api/friend/delete", DeleteFriendHandler)
+
+app.Get("/api/friend/requests", GetFriendRequestsHandler)
+
 	app.Get("/api/message/list", MessageListHandler)
 	app.Post("/api/message/send", SendMessageHandler)
 	app.Post("/api/message/image", UploadImageHandler)
@@ -970,4 +973,28 @@ func DownloadFileHandler(c *fiber.Ctx) error {
 	// 触发文件下载（指定原始文件名）
 	c.Attachment(filePath, fileInfo.Original)
 	return c.SendFile(filePath)
+}
+// GetFriendRequestsHandler 获取待处理的好友申请（发给当前用户的）
+func GetFriendRequestsHandler(c *fiber.Ctx) error {
+    token := c.Get("Authorization")
+    claims, err := VerifyToken(token)
+    if err != nil {
+        return c.Status(401).JSON(fiber.Map{"success": false, "error": "未登录"})
+    }
+
+    var requests []Friend
+    if err := DB.Where("friend_id = ? AND status = ?", claims.UserID, StatusPending).Find(&requests).Error; err != nil {
+        return c.Status(500).JSON(fiber.Map{"success": false, "error": "获取申请失败"})
+    }
+
+    // 获取申请者的详细信息
+    users := make([]*User, 0)
+    for _, req := range requests {
+        user, err := GetUserByID(req.UserID)
+        if err == nil {
+            users = append(users, user)
+        }
+    }
+
+    return c.JSON(fiber.Map{"success": true, "data": users})
 }
