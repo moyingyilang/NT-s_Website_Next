@@ -667,6 +667,9 @@ let currentFriendIdForMessages = null; // 当前正在聊天的好友ID
             });
             const data = await res.json();
             if (data.success) {
+
+        localStorage.setItem('token', data.token);  // 保存 Token
+
                 currentUser = data.user;
                 document.getElementById('loginRegisterContainer').classList.add('hidden');
                 document.getElementById('mainApp').classList.remove('hidden');
@@ -679,14 +682,15 @@ let currentFriendIdForMessages = null; // 当前正在聊天的好友ID
             }
         }
         // 退出登录
-        async function logout() {
-            stopMessagePolling();
-            await fetch('/api/public/logout');
-            currentUser = null;
-            document.getElementById('loginRegisterContainer').classList.remove('hidden');
-            document.getElementById('mainApp').classList.add('hidden');
-            document.getElementById('dropdownMenu').style.display = 'none';
-        }
+async function logout() {
+    stopMessagePolling();
+    await authFetch('/api/public/logout'); // 建议也带上 Token，以便后端加入黑名单
+    localStorage.removeItem('token');
+    currentUser = null;
+    document.getElementById('loginRegisterContainer').classList.remove('hidden');
+    document.getElementById('mainApp').classList.add('hidden');
+    document.getElementById('dropdownMenu').style.display = 'none';
+}
         // 更新用户信息显示
         function updateUserInfo() {
             document.getElementById('username').textContent = currentUser.nickname || currentUser.username;
@@ -1247,21 +1251,51 @@ function stopMessagePolling() {
 }
 // 初始化检查登录状态
 async function init() {
-    const res = await fetch('/api/user/info');
-    const data = await res.json();
-    if (data.success) {
-        currentUser = data.data;
-        document.getElementById('loginRegisterContainer').classList.add('hidden');
-        document.getElementById('mainApp').classList.remove('hidden');
-        updateUserInfo();
-        loadFriends();
-        loadFriendRequestCount();
-        startMessagePolling();
-    } else {
-        document.getElementById('loginRegisterContainer').classList.remove('hidden');
-        document.getElementById('mainApp').classList.add('hidden');
+    const token = localStorage.getItem('token');
+    if (!token) {
+        showLoginScreen();
+        return;
+    }
+    try {
+        const res = await authFetch('/api/user/info');
+        const data = await res.json();
+        if (data.success) {
+            currentUser = data.user;
+            document.getElementById('loginRegisterContainer').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            updateUserInfo();
+            loadFriends();
+            loadFriendRequestCount();
+            startMessagePolling();
+        } else {
+            showLoginScreen();
+        }
+    } catch (e) {
+        showLoginScreen();
     }
 }
+
+function showLoginScreen() {
+    document.getElementById('loginRegisterContainer').classList.remove('hidden');
+    document.getElementById('mainApp').classList.add('hidden');
+}
+
+async function authFetch(url, options = {}) {
+    const token = localStorage.getItem('token');
+    if (token) {
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = 'Bearer ' + token;
+    }
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        // Token 失效，跳回登录页
+        localStorage.removeItem('token');
+        window.location.reload(); // 或手动显示登录界面
+        throw new Error('登录已过期');
+    }
+    return res;
+}
+
 // 暗黑模式切换
 const darkModeToggle = document.getElementById('darkModeToggle');
 const prefersDark = localStorage.getItem('darkMode') === 'true';
